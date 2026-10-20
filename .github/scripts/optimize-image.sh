@@ -15,7 +15,8 @@ case "$ext" in
     if grep -qa "acTL" "$tmp/in.png"; then exit 0; fi
     "$IM" "$tmp/in.png" -resize "${MAXW}x>" "$tmp/r.png"
     pngquant --quality=65-90 --speed 1 --strip --force --output "$tmp/q.png" "$tmp/r.png" || cp "$tmp/r.png" "$tmp/q.png"
-    oxipng -o 3 --strip safe -q "$tmp/q.png"
+    # Lossless squeeze on top, where oxipng is installed (it is on a Mac, not in apt).
+    ! command -v oxipng >/dev/null || oxipng -o 3 --strip safe -q "$tmp/q.png"
     out="$tmp/q.png" ;;
   jpg|jpeg)
     "$IM" "$f" -auto-orient -resize "${MAXW}x>" -strip -interlace Plane -sampling-factor 4:2:0 -quality 82 "$tmp/o.jpg"
