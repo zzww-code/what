@@ -13,12 +13,17 @@ case "$ext" in
     cp "$f" "$tmp/in.png"
     # An animated PNG would lose its frames to a resize: leave it alone.
     if grep -qa "acTL" "$tmp/in.png"; then exit 0; fi
+    # Already shrunk by an earlier run (an 8-bit palette, within the size cap): a second
+    # lossy pass would only degrade it.
+    if file -b "$tmp/in.png" | grep -q colormap && [ "$(identify -format %w "$tmp/in.png" | head -c 6)" -le "$MAXW" ]; then exit 0; fi
     "$IM" "$tmp/in.png" -resize "${MAXW}x>" "$tmp/r.png"
     pngquant --quality=65-90 --speed 1 --strip --force --output "$tmp/q.png" "$tmp/r.png" || cp "$tmp/r.png" "$tmp/q.png"
     # Lossless squeeze on top, where oxipng is installed (it is on a Mac, not in apt).
     ! command -v oxipng >/dev/null || oxipng -o 3 --strip safe -q "$tmp/q.png"
     out="$tmp/q.png" ;;
   jpg|jpeg)
+    # Already at or below the target quality and size: leave it.
+    if [ "$(identify -format '%Q' "$f")" -le 82 ] && [ "$(identify -format %w "$f")" -le "$MAXW" ]; then exit 0; fi
     "$IM" "$f" -auto-orient -resize "${MAXW}x>" -strip -interlace Plane -sampling-factor 4:2:0 -quality 82 "$tmp/o.jpg"
     out="$tmp/o.jpg" ;;
   gif)
