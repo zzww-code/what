@@ -1,0 +1,57 @@
+name: Optimize images
+
+# New or changed images are shrunk in place after every push (PicGo uploads are
+# pushes). Run it by hand ("Run workflow") to sweep the whole repo.
+on:
+  push:
+    branches: [master]
+    paths: ["**.png", "**.PNG", "**.jpg", "**.jpeg", "**.JPG", "**.JPEG", "**.gif", "**.GIF"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: optimize-images
+  cancel-in-progress: false
+
+jobs:
+  optimize:
+    # The bot's own commit does not start another run (GITHUB_TOKEN pushes never
+    # do); the [skip ci] guard is for pushes made with a personal token.
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pngquant oxipng gifsicle imagemagick
+
+      - name: Pick images
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            git diff --name-only --diff-filter=AM -z "${{ github.event.before }}" "${{ github.sha }}" > changed.z
+          else
+            git ls-files -z > changed.z
+          fi
+          grep -zEi '\.(png|jpe?g|gif)$' changed.z > images.z || true
+          tr -cd '\0' < images.z | wc -c
+
+      - name: Optimize
+        run: |
+          xargs -0 -P 4 -I{} timeout 900 .github/scripts/optimize-image.sh {} < images.z | tee report.txt || true
+          awk '{b+=$1;a+=$2} END{printf "%d images, %.1f MB -> %.1f MB\n", NR, b/1048576, a/1048576}' report.txt
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- . ':!images.z' ':!changed.z' ':!report.txt'
+          git diff --cached --quiet && { echo "Nothing to shrink."; exit 0; }
+          git commit -q -m "Optimize images [skip ci]"
+          git pull --rebase -q origin master
+          git push -q origin HEAD:master
